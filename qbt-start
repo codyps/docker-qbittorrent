@@ -1,0 +1,9 @@
+#! /usr/bin/env bash
+set -euf -o pipefail
+
+args=("--confirm-legal-notice")
+if [ "${WEBUI_PORT:-}" != "" ]; then
+  args+=(--webui-port="$WEBUI_PORT")
+fi
+
+exec qbittorrent-nox "${args[@]}" 
