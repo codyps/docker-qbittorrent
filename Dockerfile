@@ -2,7 +2,7 @@ FROM debian:unstable
 
 ENV HOME="/config" \
   XDG_CONFIG_HOME="/config" \
- XDG_DATA_HOME="/config"
+  XDG_DATA_HOME="/config"
 
 RUN apt-get update && apt-get install -y qbittorrent-nox
 
