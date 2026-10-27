@@ -7,6 +7,15 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+  schedule:
+    # Refresh Debian packages daily, even when this repository has no commits.
+    - cron: '17 6 * * *'
+
+# Serialize builds for each ref.
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -16,7 +25,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     # Bound the whole job, including action setup and cleanup.
-    timeout-minutes: 25
+    timeout-minutes: 35
     permissions:
       contents: read
       packages: write
@@ -34,9 +43,24 @@ jobs:
         timeout-minutes: 3
         uses: docker/setup-buildx-action@v4
 
+      - name: Build image for startup tests
+        timeout-minutes: 10
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: local/qbittorrent:test
+          pull: true
+          no-cache: true
+
+      - name: Test qBittorrent version and WebUI startup
+        timeout-minutes: 2
+        run: bash .github/scripts/smoke-test.sh local/qbittorrent:test
+
       - name: Log in to GitHub Container Registry
         timeout-minutes: 2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -53,16 +77,27 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+            type=raw,value=build-${{ github.run_id }}-${{ github.run_attempt }},enable=${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
 
       - name: Build and push Docker image
+        id: build
         timeout-minutes: 15
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # A cached apt-get layer can hide newly published qBittorrent packages.
+          pull: true
+          no-cache: true
+
+      - name: Record published image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "Published ${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Build tag: build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_STEP_SUMMARY"
