@@ -12,7 +12,7 @@ on:
     # Refresh Debian packages daily, even when this repository has no commits.
     - cron: '17 6 * * *'
 
-# Serialize publication so an older build cannot overwrite a newer one.
+# Serialize builds for each ref.
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
